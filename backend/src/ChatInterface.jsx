@@ -70,7 +70,11 @@ export const ChatInterface = () => {
       if (!response.ok) throw new Error('Network response was not ok');
       
       const data = await response.json();
-      const incomingMood = data.mood || "neutral";
+      const rawReply = data.reply || data.response || "";
+      const moodPrefixPattern = /^Mood:\s*([a-zA-Z]+)\s*/i;
+      const moodMatch = rawReply.match(moodPrefixPattern);
+      const cleanedReply = rawReply.replace(moodPrefixPattern, "");
+      const incomingMood = data.mood || moodMatch?.[1]?.toLowerCase() || "neutral";
 
       setUiTheme((prevTheme) => {
         if (incomingMood === "concerned") return "concerned";
@@ -79,7 +83,7 @@ export const ChatInterface = () => {
       });
 
       setMessages(prev => [...prev, { 
-        text: data.reply || data.response, 
+        text: cleanedReply, 
         sender: "bot", 
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
       }]);
