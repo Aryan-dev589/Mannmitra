@@ -38,7 +38,7 @@ app.add_middleware(
 llm = ChatOpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=os.getenv("OPENROUTER_API_KEY"),
-    model="google/gemini-2.0-flash-001",
+    model="google/gemini-2.5-flash",
     temperature=0.7,
     default_headers={
         "HTTP-Referer": "https://mannmitra-seven.vercel.app",
@@ -47,7 +47,7 @@ llm = ChatOpenAI(
     model_kwargs={
         "extra_body": {
             "models": [
-                "google/gemini-2.0-flash-001",
+                "google/gemini-2.5-flash",
                 "meta-llama/llama-3.3-70b-instruct",
                 "mistralai/mistral-small-24b-instruct-2501",
                 "openrouter/auto"
