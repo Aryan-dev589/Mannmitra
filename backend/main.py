@@ -27,14 +27,14 @@ app.mount("/public", StaticFiles(directory="../public"), name="public")
 # THE BRIDGE: Allows React (port 5173) to talk to FastAPI (port 8000)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", os.getenv("FRONTEND_URL", "")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # 1. Initialize the "Brain" (Model names verified & stable)
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash-lite", temperature=0.7)
+llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7)
 
 # 2. Setup Memory (Cloud Vector Database)
 embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
@@ -78,7 +78,7 @@ chat_chain = LLMChain(llm=llm, prompt=prompt_template, memory=memory)
 class ChatRequest(BaseModel):
     user_id: str
     message: str
-    script_preference: str= "Auto-mirror"  # Default to English, but can be extended for multilingual support
+    script_preference: str = "Auto-Mirror"  # Default to Auto-Mirror, but can be extended for multilingual support
 
 @app.post("/api/chat")
 async def chat(request: ChatRequest): 
@@ -133,7 +133,7 @@ async def chat(request: ChatRequest):
         vector_db.add_texts([f"User discussed: {user_input}. MannMitra replied: {response}"])
         
         # D. EMOTION ANALYSIS
-        mood = "concerned" if any(w in user_input.lower() for w in ["sad", "stressed", "anxious", "scared"]) else "calm"
+        mood = "concerned" if any(w in user_input.lower() for w in ["sad", "stressed", "anxious", "scared"]) else "neutral"
         
         return {"reply": response, "mood": mood, "crisis_mode": False}
         
@@ -149,9 +149,9 @@ from typing import List, Dict, Optional
 class RoleplayRequest(BaseModel):
     user_id: str
     message: str
-    history: List[Dict[str, str]] = []
+    history: Optional[List[Dict[str, str]]] = None
     scenario: str = ""
-    details: Dict[str, str] = {}
+    details: Optional[Dict[str, str]] = None
     is_debrief: bool = False
 
 @app.post("/api/simulate")
@@ -161,9 +161,11 @@ async def simulate_chat(req: RoleplayRequest):
         if req.is_debrief:
             # 1. Format the JSON history array into a readable chat transcript
             transcript = ""
-            for msg in req.history:
+            for msg in (req.history or []):
                 role = "User" if msg.get("sender") == "user" else "Persona"
                 transcript += f"{role}: {msg.get('text', '')}\n"
+
+            details = req.details or {}
 
             # 2. Inject the transcript into the prompt
             debrief_prompt = f"""
@@ -171,8 +173,8 @@ async def simulate_chat(req: RoleplayRequest):
             The user just completed a 'Behavioral Rehearsal' simulation to practice a difficult conversation.
             
             Here is the context they provided before starting:
-            - Goal: {req.details.get('context', 'Unknown')}
-            - Their struggle: {req.details.get('friction', 'Unknown')}
+            - Goal: {details.get('context', 'Unknown')}
+            - Their struggle: {details.get('friction', 'Unknown')}
             
             Here is the FULL TRANSCRIPT of their roleplay session:
             {transcript}
@@ -186,58 +188,61 @@ async def simulate_chat(req: RoleplayRequest):
             
             # Call Gemini
             response = llm.invoke(debrief_prompt)
-            memory_chunk = f"User completed a behavioral rehearsal about: {req.details.get('friction', 'setting boundaries')}. Transcript: {transcript}. Feedback given: {response.content}"
+            memory_chunk = f"User completed a behavioral rehearsal about: {details.get('friction', 'setting boundaries')}. Transcript: {transcript}. Feedback given: {response.content}"
             vector_db.add_texts([memory_chunk])
             return {"response": response.content, "status": "debrief_complete"}
 
         # --- PHASE 2: THE ACTIVE SIMULATION ---
         else:
             # Dynamically build the toxic persona
-            persona_desc = req.details.get('persona', 'a difficult, unreasonable person')
-            context_desc = req.details.get('context', 'a stressful conversation')
-            friction_desc = req.details.get('friction', 'setting boundaries')
+            persona_desc = req.details.get('persona', 'a difficult, unreasonable person') if req.details else 'a difficult, unreasonable person'
+            context_desc = req.details.get('context', 'a stressful conversation') if req.details else 'a stressful conversation'
+            friction_desc = req.details.get('friction', 'setting boundaries') if req.details else 'setting boundaries'
             
             # --- FEATURE 1: ROLE REVERSAL BRAIN SWAP ---
             if req.scenario == "Role Reversal":
                 simulation_prompt = f"""
-                SYSTEM OVERRIDE: You are participating in a clinical behavioral rehearsal exercise.
-                
-                CRITICAL ROLE ASSIGNMENT:
-                - YOU ARE PLAYING: The calm, collected USER.
-                - THE HUMAN TYPING TO YOU IS PLAYING: The "difficult person" ({persona_desc}).
-                
-                THE SITUATION: {context_desc}
-                WHAT YOU ARE SUPPOSED TO MODEL: {friction_desc}
-                
-                RULES OF THE SIMULATION:
-                1. Act like a polite, calm person trying to set healthy boundaries.
-                2. Use "I" statements (e.g., "I feel overwhelmed when...").
-                3. Do NOT be rude or difficult. You are modeling good communication behavior.
-                4. Keep your responses short and conversational (1-2 sentences).
-                
-                Human (acting as difficult person): "{req.message}"
-                Your polite, boundary-setting response:
-                """
+    SYSTEM OVERRIDE: You are participating in a clinical behavioral rehearsal exercise. You MUST NOT act like an AI assistant.
+    
+    CRITICAL ROLE ASSIGNMENT:
+    - YOU ARE PLAYING: The calm, collected USER trying to set healthy boundaries.
+    - THE HUMAN TYPING TO YOU IS PLAYING: The "difficult person" ({persona_desc}).
+    
+    THE SITUATION: {context_desc}
+    WHAT YOU ARE SUPPOSED TO MODEL: {friction_desc}
+    
+    RULES OF THE SIMULATION:
+    1. You are the one trying to de-escalate. Act like a polite, calm human setting boundaries.
+    2. Use empathetic "I" statements (e.g., "I feel overwhelmed when...").
+    3. Do NOT be rude, difficult, or robotic. You are modeling good human communication behavior.
+    4. Keep your responses short and conversational (1-2 sentences).
+    
+    Human (acting as difficult person): "{req.message}"
+    Your polite, boundary-setting human response:
+    """
             else:
                 simulation_prompt = f"""
-                SYSTEM OVERRIDE: You are NO LONGER MannMitra. You are participating in a clinical behavioral rehearsal exercise.
-                
-                CRITICAL ROLE ASSIGNMENT:
-                - YOU ARE PLAYING: {persona_desc}
-                - THE HUMAN TYPING TO YOU IS PLAYING: Themselves (The person trying to navigate this situation).
-                
-                THE SITUATION: {context_desc}
-                WHAT THE HUMAN STRUGGLES WITH: {friction_desc}
-                
-                RULES OF THE SIMULATION:
-                1. YOU ARE NOT THE USER. You are the OTHER person in this conflict. (e.g., If the situation is about owing money, YOU owe the money and the human is asking for it).
-                2. STAY IN CHARACTER 100% OF THE TIME. Never break character to be helpful.
-                3. Be challenging, slightly unreasonable, and push specifically against the user's struggle.
-                4. Keep your responses short and conversational (1 to 3 sentences max).
-                
-                Human's current message: "{req.message}"
-                Your response as the persona:
-                """
+    SYSTEM OVERRIDE: You are NO LONGER MannMitra. You are participating in a clinical behavioral rehearsal exercise.
+    
+    CRITICAL ROLE ASSIGNMENT:
+    - YOU ARE PLAYING: {persona_desc}
+    - THE HUMAN TYPING TO YOU IS PLAYING: Themselves (The person trying to navigate this situation).
+    
+    THE SITUATION: {context_desc}
+    WHAT THE HUMAN STRUGGLES WITH: {friction_desc}
+    
+    RULES OF THE SIMULATION (DYNAMIC RESISTANCE):
+    1. YOU ARE NOT THE USER. You are the OTHER person in this conflict. You are skeptical, hesitant, and stressed, but NOT purely hostile.
+    2. NEVER break character to be helpful. Never offer generic AI advice.
+    3. Fluctuate your resistance based on the user's input:
+       - If the human uses empathetic "I" statements or validates your feelings -> Soften your tone slightly and yield a bit of ground.
+       - If the human is pushy, dismissive, or uses aggressive language -> Become more evasive, defensive, or difficult.
+    4. Start guarded. Make the user work to build rapport.
+    5. Keep your responses short and conversational (1 to 3 sentences max). People in stress don't monologue.
+    
+    Human's current message: "{req.message}"
+    Your response as the persona:
+    """
             
             # Using your existing LangChain LLM directly
             response = llm.invoke(simulation_prompt)
