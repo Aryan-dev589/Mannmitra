@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 from fastapi.staticfiles import StaticFiles
 
 # --- THE BULLETPROOF IMPORTS ---
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_openai import ChatOpenAI
 from langchain_pinecone import PineconeVectorStore  # Updated to the dedicated package
 from langchain_core.prompts import PromptTemplate
 from langchain_classic.chains import LLMChain
@@ -34,7 +35,26 @@ app.add_middleware(
 )
 
 # 1. Initialize the "Brain" (Model names verified & stable)
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7)
+llm = ChatOpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.getenv("OPENROUTER_API_KEY"),
+    model="google/gemini-2.0-flash-001",
+    temperature=0.7,
+    default_headers={
+        "HTTP-Referer": "https://mannmitra-seven.vercel.app",
+        "X-Title": "MannMitra"
+    },
+    model_kwargs={
+        "extra_body": {
+            "models": [
+                "google/gemini-2.0-flash-001",
+                "meta-llama/llama-3.3-70b-instruct",
+                "mistralai/mistral-small-24b-instruct-2501",
+                "openrouter/auto"
+            ]
+        }
+    }
+)
 
 # 2. Setup Memory (Cloud Vector Database)
 embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
