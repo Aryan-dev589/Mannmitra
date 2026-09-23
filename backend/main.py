@@ -49,8 +49,7 @@ llm = ChatOpenAI(
             "models": [
                 "google/gemini-2.5-flash",
                 "meta-llama/llama-3.3-70b-instruct",
-                "mistralai/mistral-small-24b-instruct-2501",
-                "openrouter/auto"
+                "mistralai/mistral-small-24b-instruct-2501"
             ]
         }
     }
