@@ -33,7 +33,7 @@ export const MoodJournal = () => {
 
     try {
       // 1. Send it to FastAPI to store in Pinecone permanently
-      await fetch('http://localhost:8000/api/journal/save', {
+      await fetch('https://mannmitra-api-nfwj.onrender.com/api/journal/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -68,7 +68,7 @@ export const MoodJournal = () => {
     
 
     try {
-      const response = await fetch('http://localhost:8000/api/journal/insights', {
+      const response = await fetch('https://mannmitra-api-nfwj.onrender.com/api/journal/insights', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

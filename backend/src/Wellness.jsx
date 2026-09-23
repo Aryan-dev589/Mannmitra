@@ -97,7 +97,7 @@ export const WellnessToolkit = () => {
   const audioRef = useRef(null);
 
   // Placeholder audio
-  const audioSource = "http://localhost:8000/public/rain.mp3"; 
+  const audioSource = "https://mannmitra-api-nfwj.onrender.com/public/rain.mp3";
 
   const toggleAudio = () => {
     if (isPlayingAudio) {

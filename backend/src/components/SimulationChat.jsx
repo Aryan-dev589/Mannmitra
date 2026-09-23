@@ -36,7 +36,7 @@ export const SimulationChat = ({ scenario, details, onExit }) => {
     setIsLoading(true);
 
     try {
-      const response = await fetch('http://localhost:8000/api/simulate', {
+      const response = await fetch('https://mannmitra-api-nfwj.onrender.com/api/simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -70,7 +70,7 @@ export const SimulationChat = ({ scenario, details, onExit }) => {
     setMessages(prev => [...prev, { text: "SIMULATION ENDED. Processing your performance...", sender: "system" }]);
 
     try {
-      const response = await fetch('http://localhost:8000/api/simulate', {
+      const response = await fetch('https://mannmitra-api-nfwj.onrender.com/api/simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

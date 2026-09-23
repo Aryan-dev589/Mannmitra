@@ -58,7 +58,7 @@ export const ChatInterface = () => {
     setIsLoading(true);
 
     try {
-      const response = await fetch('http://localhost:8000/api/chat', {
+      const response = await fetch('https://mannmitra-api-nfwj.onrender.com/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -197,7 +197,7 @@ export const ChatInterface = () => {
             <p className="text-xs text-slate-400 mb-2 font-medium tracking-wide text-center">Background Rain Sounds</p>
             <audio
               ref={audioRef}
-              src="http://localhost:8000/public/rain.mp3"
+              src="https://mannmitra-api-nfwj.onrender.com/public/rain.mp3"
               controls
               loop
               className="w-full"
