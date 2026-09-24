@@ -1,5 +1,6 @@
 import os
 import random
+import re
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -19,6 +20,16 @@ from langchain_classic.memory import ConversationBufferWindowMemory
 
 # Load environment variables
 load_dotenv()
+
+
+def clean_generated_text(text: str) -> str:
+    text = str(text or "")
+    text = re.sub(r"\[\s*(?:MOOD|EMOTION)\s*:\s*[^\]]+\]", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\(\s*(?:MOOD|EMOTION)\s*:\s*[^\)]+\)", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"<mood>[\s\S]*?</mood>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"<emotion>[\s\S]*?</emotion>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*MOOD:\s*\w+\s*$", "", text, flags=re.IGNORECASE)
+    return text.rstrip()
 
 app = FastAPI()
 
@@ -147,6 +158,7 @@ async def chat(request: ChatRequest):
         
         # B. GENERATE: Get response
         response = chat_chain.predict(user_input=user_input, long_term_context=context, script_preference=request.script_preference)
+        response = clean_generated_text(response)
         
         # C. STORE: Save interaction to the Cloud
         vector_db.add_texts([f"User discussed: {user_input}. MannMitra replied: {response}"])
@@ -207,9 +219,10 @@ async def simulate_chat(req: RoleplayRequest):
             
             # Call Gemini
             response = llm.invoke(debrief_prompt)
-            memory_chunk = f"User completed a behavioral rehearsal about: {details.get('friction', 'setting boundaries')}. Transcript: {transcript}. Feedback given: {response.content}"
+            response_text = clean_generated_text(response.content)
+            memory_chunk = f"User completed a behavioral rehearsal about: {details.get('friction', 'setting boundaries')}. Transcript: {transcript}. Feedback given: {response_text}"
             vector_db.add_texts([memory_chunk])
-            return {"response": response.content, "status": "debrief_complete"}
+            return {"response": response_text, "status": "debrief_complete"}
 
         # --- PHASE 2: THE ACTIVE SIMULATION ---
         else:
@@ -265,7 +278,8 @@ async def simulate_chat(req: RoleplayRequest):
             
             # Using your existing LangChain LLM directly
             response = llm.invoke(simulation_prompt)
-            return {"response": response.content, "status": "simulation_active"}
+            response_text = clean_generated_text(response.content)
+            return {"response": response_text, "status": "simulation_active"}
 
     except Exception as e:
         print(f"Simulation Error: {e}")
@@ -355,8 +369,9 @@ async def generate_insights(req: InsightRequest):
         
         # 5. Call Gemini
         response = llm.invoke(insight_prompt)
+        response_text = clean_generated_text(response.content)
         
-        return {"insight": response.content, "status": "success"}
+        return {"insight": response_text, "status": "success"}
 
     except Exception as e:
         print(f"Holistic Insight Error: {e}")
