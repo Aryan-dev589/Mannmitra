@@ -1,31 +1,78 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
+import { supabase } from './supabaseClient';
 
 const AuthPage = ({ onAuthSuccess }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const [formData, setFormData] = useState({
     username: '',
     passphrase: '',
     confirmPassphrase: ''
   });
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
+    setErrorMessage('');
+
     if (!isLogin && formData.passphrase !== formData.confirmPassphrase) {
-      alert("Passphrases don't match!");
+      setErrorMessage("Passphrases don't match!");
       return;
     }
-    
+
     if (formData.passphrase.length < 6) {
-      alert("Passphrase should be at least 6 characters long");
+      setErrorMessage("Passphrase should be at least 6 characters long");
       return;
     }
-    
-    console.log(isLogin ? 'Logging in:' : 'Signing up:', { username: formData.username });
-    alert(isLogin ? 'Login successful!' : 'Account created successfully!');
-    onAuthSuccess({ username: formData.username });
+
+    const cleanUsername = formData.username.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
+    const syntheticEmail = `${cleanUsername}@mannmitra.local`;
+
+    setLoading(true);
+    try {
+      if (isLogin) {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: syntheticEmail,
+          password: formData.passphrase
+        });
+
+        if (error) {
+          setErrorMessage(error.message.includes('Invalid login credentials')
+            ? 'Incorrect username or passphrase.'
+            : error.message);
+          return;
+        }
+
+        onAuthSuccess({
+          username: data.user.user_metadata?.username || formData.username,
+          user: data.user
+        });
+      } else {
+        const { data, error } = await supabase.auth.signUp({
+          email: syntheticEmail,
+          password: formData.passphrase,
+          options: {
+            data: { username: formData.username.trim() }
+          }
+        });
+
+        if (error) {
+          setErrorMessage(error.message.includes('User already registered')
+            ? 'This username is already taken. Please pick another.'
+            : error.message);
+          return;
+        }
+
+        onAuthSuccess({ username: formData.username.trim(), user: data.user });
+      }
+    } catch (error) {
+      setErrorMessage(error.message || 'Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleInputChange = (e) => {
@@ -35,9 +82,24 @@ const AuthPage = ({ onAuthSuccess }) => {
     });
   };
 
-  const handleGuestAccess = () => {
-    alert('Continuing as guest. Data will be stored locally on this device.');
-    onAuthSuccess({ username: 'Guest' });
+  const handleGuestAccess = async () => {
+    setErrorMessage('');
+    setLoading(true);
+
+    try {
+      const { data, error } = await supabase.auth.signInAnonymously();
+
+      if (error) throw error;
+
+      onAuthSuccess({ username: 'Guest', user: data.user, isGuest: true });
+    } catch (error) {
+      onAuthSuccess({
+        username: `Guest_${Math.floor(1000 + Math.random() * 9000)}`,
+        isGuest: true
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -119,9 +181,14 @@ const AuthPage = ({ onAuthSuccess }) => {
                 />
               </div>
             )}
+
+            {errorMessage && (
+              <p className="text-sm text-red-400" role="alert">{errorMessage}</p>
+            )}
             
             <button
               type="submit"
+              disabled={loading}
               className="w-full py-3 px-4 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-500 transition-colors duration-300 shadow-lg shadow-indigo-600/30 mt-2"
             >
               {isLogin ? 'Sign In' : 'Create Account'}
@@ -142,6 +209,7 @@ const AuthPage = ({ onAuthSuccess }) => {
           <div className="mt-8 pt-6 border-t border-gray-700">
             <button 
               onClick={handleGuestAccess}
+              disabled={loading}
               className="w-full py-3 px-4 border border-gray-600 bg-gray-700/50 rounded-lg font-medium text-gray-300 hover:bg-gray-700 transition-colors"
             >
               Continue as Guest
