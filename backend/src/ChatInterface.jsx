@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BreathingExercise } from './BreathingExercise';
 import { BilateralStimulation } from './BilateralStimulation';
+import { authenticatedFetch } from './api';
 
 export const ChatInterface = () => {
   // State Management
@@ -58,11 +59,10 @@ export const ChatInterface = () => {
     setIsLoading(true);
 
     try {
-      const response = await fetch('https://mannmitra-api-nfwj.onrender.com/api/chat', {
+      const response = await authenticatedFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          user_id: "test_user_123",
           message: userMsg.text
         })
       });

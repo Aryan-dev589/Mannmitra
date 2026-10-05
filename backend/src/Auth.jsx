@@ -93,10 +93,7 @@ const AuthPage = ({ onAuthSuccess }) => {
 
       onAuthSuccess({ username: 'Guest', user: data.user, isGuest: true });
     } catch (error) {
-      onAuthSuccess({
-        username: `Guest_${Math.floor(1000 + Math.random() * 9000)}`,
-        isGuest: true
-      });
+      setErrorMessage(error.message || 'Guest sign-in failed. Please try again.');
     } finally {
       setLoading(false);
     }

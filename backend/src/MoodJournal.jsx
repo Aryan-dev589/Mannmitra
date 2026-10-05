@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Sparkles, Save, Calendar as CalendarIcon, BookOpen } from 'lucide-react';
+import { authenticatedFetch } from './api';
 
 const MOODS = [
   { id: 'terrible', emoji: '😭', label: 'Terrible', color: 'bg-red-500/20 text-red-400 border-red-500/30' },
@@ -33,16 +34,16 @@ export const MoodJournal = () => {
 
     try {
       // 1. Send it to FastAPI to store in Pinecone permanently
-      await fetch('https://mannmitra-api-nfwj.onrender.com/api/journal/save', {
+      const response = await authenticatedFetch('/api/journal/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: "aryan-dev589", // Using your dev ID
           mood: newEntry.mood,
           text: newEntry.text,
           date: newEntry.date
         })
       });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
 
       // 2. Save it to React state so the "Generate Summary" button has immediate context
       setSavedEntries([...savedEntries, newEntry]); 
@@ -68,11 +69,10 @@ export const MoodJournal = () => {
     
 
     try {
-      const response = await fetch('https://mannmitra-api-nfwj.onrender.com/api/journal/insights', {
+      const response = await authenticatedFetch('/api/journal/insights', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: "aryan",
           recent_entries: savedEntries
         })
       });

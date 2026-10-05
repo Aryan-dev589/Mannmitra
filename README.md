@@ -43,7 +43,7 @@ A safe sandbox to practice difficult conversations before having them for real:
 
 ### 🔐 Privacy-First Auth
 - Fully anonymous usernames — no real names required
-- Optional **Guest Mode** with local-only data
+- Optional **Guest Mode** using Supabase anonymous authentication
 - Granular privacy settings (data collection, analytics, personalized content toggles)
 - Data export & account deletion controls
 
@@ -98,6 +98,7 @@ backend/
 - **Python** ≥ 3.10
 - A **Google Generative AI** API key (Gemini)
 - A **Pinecone** account + index named `mannmitra-index`
+- A **Supabase** project with email/password and anonymous sign-in enabled
 
 ### 1. Clone & install frontend dependencies
 
@@ -119,9 +120,15 @@ Create a `.env` file inside `backend/`:
 ```env
 GOOGLE_API_KEY=your_google_generative_ai_key
 PINECONE_API_KEY=your_pinecone_key
+OPENROUTER_API_KEY=your_openrouter_key
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your_supabase_anon_key
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
 > Make sure a Pinecone index called `mannmitra-index` exists (matching the embedding dimension used by `gemini-embedding-001`) before starting the server.
+> The frontend uses the `VITE_` Supabase settings. The backend verifies each API request's Supabase access token using `SUPABASE_URL` and `SUPABASE_ANON_KEY`; set these on the backend deployment too. Chat, journal, and roleplay memories are stored in per-user Pinecone namespaces. Existing vectors in the unscoped default namespace are neither read nor migrated.
 
 ### 3. Run the backend
 

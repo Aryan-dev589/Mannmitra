@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { authenticatedFetch } from '../api';
 
 export const SimulationChat = ({ scenario, details, onExit }) => {
   const [messages, setMessages] = useState([]);
@@ -36,11 +37,10 @@ export const SimulationChat = ({ scenario, details, onExit }) => {
     setIsLoading(true);
 
     try {
-      const response = await fetch('https://mannmitra-api-nfwj.onrender.com/api/simulate', {
+      const response = await authenticatedFetch('/api/simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: "aryan", 
           message: userText,
           history: messages, 
           scenario: scenario,
@@ -70,11 +70,10 @@ export const SimulationChat = ({ scenario, details, onExit }) => {
     setMessages(prev => [...prev, { text: "SIMULATION ENDED. Processing your performance...", sender: "system" }]);
 
     try {
-      const response = await fetch('https://mannmitra-api-nfwj.onrender.com/api/simulate', {
+      const response = await authenticatedFetch('/api/simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: "aryan",
           message: "User triggered the end of the simulation.",
           history: messages, // Sending the full script we just generated!
           scenario: scenario,

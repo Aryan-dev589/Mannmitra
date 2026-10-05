@@ -13,8 +13,8 @@ const OnboardingScreen = ({ onGetStarted }) => {
     },
     {
       icon: <Shield className="w-12 h-12 text-indigo-500" />,
-      title: "Completely Private",
-      description: "Your conversations stay between you and MannMitra. No personal data is stored or shared."
+      title: "Account-Scoped Memory",
+      description: "Messages are sent to our AI provider, and chat, journal, and completed roleplay memories are stored in account-separated Pinecone namespaces for personalized context."
     },
     {
       icon: <Heart className="w-12 h-12 text-rose-500" />,

@@ -1,8 +1,13 @@
 import os
 import random
 import re
-from fastapi import FastAPI, HTTPException
+from datetime import datetime, timezone
+from typing import List, Dict, Optional
+
+import httpx
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -15,7 +20,6 @@ from langchain_openai import ChatOpenAI
 from langchain_pinecone import PineconeVectorStore  # Updated to the dedicated package
 from langchain_core.prompts import PromptTemplate
 from langchain_classic.chains import LLMChain
-from langchain_classic.memory import ConversationBufferWindowMemory
 # ------------------------------
 
 # Load environment variables
@@ -71,8 +75,55 @@ embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001")
 index_name = "mannmitra-index" # Must match what you typed on the website
 vector_db = PineconeVectorStore.from_existing_index(index_name=index_name, embedding=embeddings)
 
-# 3. Short-term Session Memory 
-memory = ConversationBufferWindowMemory(k=5, memory_key="chat_history", input_key="user_input")
+auth_scheme = HTTPBearer(auto_error=False)
+
+
+async def get_authenticated_user_id(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(auth_scheme),
+) -> str:
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="A valid Supabase access token is required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    supabase_url = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL")
+    supabase_anon_key = os.getenv("SUPABASE_ANON_KEY") or os.getenv("VITE_SUPABASE_ANON_KEY")
+    if not supabase_url or not supabase_anon_key:
+        raise HTTPException(status_code=503, detail="Supabase authentication is not configured.")
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"{supabase_url.rstrip('/')}/auth/v1/user",
+                headers={
+                    "apikey": supabase_anon_key,
+                    "Authorization": f"Bearer {credentials.credentials}",
+                },
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=503, detail="Supabase authentication is unavailable.") from exc
+
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=401,
+            detail="The Supabase access token is invalid or expired.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        user_id = response.json().get("id")
+    except (ValueError, AttributeError) as exc:
+        raise HTTPException(status_code=503, detail="Supabase returned an invalid user response.") from exc
+
+    if not isinstance(user_id, str) or not user_id:
+        raise HTTPException(status_code=401, detail="The Supabase token has no authenticated user.")
+    return user_id
+
+
+def user_namespace(user_id: str) -> str:
+    return f"user-{user_id}"
 
 # 4. The "MannMitra" Persona Definition
 prompt_template = PromptTemplate(
@@ -103,17 +154,17 @@ User's Current Message:
 Your friendly response:"""
 )  
 
-chat_chain = LLMChain(llm=llm, prompt=prompt_template, memory=memory)
+chat_chain = LLMChain(llm=llm, prompt=prompt_template)
 
 class ChatRequest(BaseModel):
-    user_id: str
     message: str
     script_preference: str = "Auto-Mirror"  # Default to Auto-Mirror, but can be extended for multilingual support
 
 @app.post("/api/chat")
-async def chat(request: ChatRequest): 
+async def chat(request: ChatRequest, user_id: str = Depends(get_authenticated_user_id)):
     try:
         user_input = request.message
+        namespace = user_namespace(user_id)
         
         # --- 1. THE SAFETY INTERCEPTOR ---
         high_risk_keywords = [
@@ -153,15 +204,38 @@ async def chat(request: ChatRequest):
         # --- 2. THE NORMAL CHAT FLOW ---
         
         # A. RETRIEVE: Find past memories in the Cloud
-        docs = vector_db.similarity_search(user_input, k=2)
-        context = "\n".join([doc.page_content for doc in docs]) if docs else "No prior history."
+        history_docs = vector_db.similarity_search(
+            user_input,
+            k=5,
+            filter={"kind": "chat"},
+            namespace=namespace,
+        )
+        history_docs.sort(key=lambda doc: doc.metadata.get("created_at", ""))
+        chat_history = "\n".join(doc.page_content for doc in history_docs) or "No prior chat history."
+
+        memory_docs = vector_db.similarity_search(
+            user_input,
+            k=3,
+            filter={"kind": {"$ne": "chat"}},
+            namespace=namespace,
+        )
+        long_term_context = "\n".join(doc.page_content for doc in memory_docs) or "No prior history."
         
         # B. GENERATE: Get response
-        response = chat_chain.predict(user_input=user_input, long_term_context=context, script_preference=request.script_preference)
+        response = chat_chain.predict(
+            user_input=user_input,
+            chat_history=chat_history,
+            long_term_context=long_term_context,
+            script_preference=request.script_preference,
+        )
         response = clean_generated_text(response)
         
         # C. STORE: Save interaction to the Cloud
-        vector_db.add_texts([f"User discussed: {user_input}. MannMitra replied: {response}"])
+        vector_db.add_texts(
+            [f"User: {user_input}\nMannMitra: {response}"],
+            metadatas=[{"kind": "chat", "created_at": datetime.now(timezone.utc).isoformat()}],
+            namespace=namespace,
+        )
         
         # D. EMOTION ANALYSIS
         mood = "concerned" if any(w in user_input.lower() for w in ["sad", "stressed", "anxious", "scared"]) else "neutral"
@@ -175,10 +249,7 @@ async def chat(request: ChatRequest):
 
 # --- BEHAVIORAL REHEARSAL SIMULATION LOGIC ---
 
-from typing import List, Dict, Optional
-
 class RoleplayRequest(BaseModel):
-    user_id: str
     message: str
     history: Optional[List[Dict[str, str]]] = None
     scenario: str = ""
@@ -186,7 +257,10 @@ class RoleplayRequest(BaseModel):
     is_debrief: bool = False
 
 @app.post("/api/simulate")
-async def simulate_chat(req: RoleplayRequest):
+async def simulate_chat(
+    req: RoleplayRequest,
+    user_id: str = Depends(get_authenticated_user_id),
+):
     try:
         # --- PHASE 1: THE DEBRIEF (When the user clicks Exit) ---
         if req.is_debrief:
@@ -221,7 +295,11 @@ async def simulate_chat(req: RoleplayRequest):
             response = llm.invoke(debrief_prompt)
             response_text = clean_generated_text(response.content)
             memory_chunk = f"User completed a behavioral rehearsal about: {details.get('friction', 'setting boundaries')}. Transcript: {transcript}. Feedback given: {response_text}"
-            vector_db.add_texts([memory_chunk])
+            vector_db.add_texts(
+                [memory_chunk],
+                metadatas=[{"kind": "roleplay", "created_at": datetime.now(timezone.utc).isoformat()}],
+                namespace=user_namespace(user_id),
+            )
             return {"response": response_text, "status": "debrief_complete"}
 
         # --- PHASE 2: THE ACTIVE SIMULATION ---
@@ -286,19 +364,25 @@ async def simulate_chat(req: RoleplayRequest):
         raise HTTPException(status_code=500, detail=str(e))    
     
 class SaveJournalRequest(BaseModel):
-    user_id: str
     mood: str
     text: str
     date: str
 
 @app.post("/api/journal/save")
-async def save_journal_entry(req: SaveJournalRequest):
+async def save_journal_entry(
+    req: SaveJournalRequest,
+    user_id: str = Depends(get_authenticated_user_id),
+):
     try:
         # Tag it clearly as a journal entry so the AI doesn't confuse it with a chat message
         memory_chunk = f"[JOURNAL ENTRY] Date: {req.date} | Mood: {req.mood.upper()} | Text: {req.text}"
         
         # Save it permanently to Pinecone
-        vector_db.add_texts([memory_chunk])
+        vector_db.add_texts(
+            [memory_chunk],
+            metadatas=[{"kind": "journal", "created_at": datetime.now(timezone.utc).isoformat()}],
+            namespace=user_namespace(user_id),
+        )
         
         return {"status": "success", "message": "Saved to Vector DB"}
     
@@ -315,11 +399,13 @@ class JournalEntry(BaseModel):
     date: str
 
 class InsightRequest(BaseModel):
-    user_id: str
     recent_entries: List[JournalEntry]
 
 @app.post("/api/journal/insights")
-async def generate_insights(req: InsightRequest):
+async def generate_insights(
+    req: InsightRequest,
+    user_id: str = Depends(get_authenticated_user_id),
+):
     try:
         formatted_log = ""
         search_query = ""
@@ -338,15 +424,12 @@ async def generate_insights(req: InsightRequest):
             formatted_log = "User did not log any specific journal entries this week. Rely purely on their chat history and roleplay simulations."
 
         # 3. Retrieve from Pinecone (Bumped k=5 to give a broader summary)
-        docs = vector_db.similarity_search(search_query, k=5)
+        docs = vector_db.similarity_search(
+            search_query,
+            k=5,
+            namespace=user_namespace(user_id),
+        )
         past_context = "\n".join([doc.page_content for doc in docs]) if docs else "No past conversations found. The user is new."
-
-        # --- FEATURE 2: DEBUG INTERCEPTOR PRINT STATEMENTS ---
-        print("\n=== DEBUG: WHAT PINECONE HANDED TO GEMINI ===")
-        print(f"Search Query used: '{search_query}'")
-        print("Retrieved Chunks:")
-        print(past_context)
-        print("=============================================\n")
 
         # 4. The Adaptive Master Prompt
         insight_prompt = f"""

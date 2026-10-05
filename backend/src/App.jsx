@@ -3,6 +3,7 @@ import './App.css'
 import OnboardingScreen from './Onboard.jsx'
 import AuthPage from './Auth.jsx';
 import { MainLayout }  from './MainLayout.jsx';
+import { supabase } from './supabaseClient';
 
 function App() {
   const [showOnboarding, setShowOnboarding] = useState(true);
@@ -18,7 +19,9 @@ function App() {
     setIsAuthenticated(true);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) console.error('Sign-out error:', error);
     setUser(null);
     setIsAuthenticated(false);
   };
